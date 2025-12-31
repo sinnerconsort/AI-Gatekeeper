@@ -37,8 +37,12 @@ let extension_settings = null;
 const defaultSettings = {
     enabled: false,
     
-    // API Configuration (Sidecar-style)
-    apiProvider: 'openai',  // openai, anthropic, custom
+    // API Configuration
+    useConnectionProfile: true,  // Use ST's connection profiles by default
+    connectionProfile: '',       // Selected profile name
+    
+    // Direct API (fallback if not using profiles)
+    apiProvider: 'openrouter',
     apiModel: '',
     apiUrl: '',
     apiKey: '',
@@ -56,22 +60,36 @@ const defaultSettings = {
     gmDocument: null,
 };
 
-// Provider configurations
+// Provider configurations (for direct API mode)
 const API_PROVIDERS = {
     openai: {
         name: 'OpenAI',
         defaultUrl: 'https://api.openai.com/v1',
-        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
+        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano']
     },
     anthropic: {
         name: 'Anthropic',
         defaultUrl: 'https://api.anthropic.com/v1',
-        models: ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229']
+        models: [
+            'claude-sonnet-4-5-20250514',
+            'claude-haiku-4-5-20251001', 
+            'claude-opus-4-20250514',
+            'claude-3-5-sonnet-20241022',
+            'claude-3-5-haiku-20241022',
+            'claude-3-opus-20240229'
+        ]
     },
     openrouter: {
         name: 'OpenRouter',
         defaultUrl: 'https://openrouter.ai/api/v1',
-        models: [] // Dynamic
+        models: [
+            'anthropic/claude-sonnet-4',
+            'anthropic/claude-haiku-4',
+            'openai/gpt-4o',
+            'openai/gpt-4o-mini',
+            'google/gemini-2.0-flash-001',
+            'meta-llama/llama-3.3-70b-instruct'
+        ]
     },
     custom: {
         name: 'Custom / Local',
@@ -79,6 +97,9 @@ const API_PROVIDERS = {
         models: []
     }
 };
+
+// Cached connection profiles
+let cachedConnectionProfiles = [];
 
 // In-memory GM document for current chat
 let currentGMDocument = null;
@@ -184,6 +205,69 @@ function loadSettings() {
 function getSettings() {
     if (!extension_settings) return defaultSettings;
     return extension_settings[extensionName] || defaultSettings;
+}
+
+/**
+ * Fetch available connection profiles from SillyTavern
+ */
+async function getConnectionProfiles() {
+    try {
+        // Method 1: Try the connection profiles API
+        const response = await fetch('/api/profiles', { method: 'GET' });
+        if (response.ok) {
+            const profiles = await response.json();
+            if (Array.isArray(profiles) && profiles.length > 0) {
+                cachedConnectionProfiles = profiles.map(p => typeof p === 'string' ? p : p.name).filter(Boolean);
+                console.log('[Gatekeeper] Found connection profiles:', cachedConnectionProfiles);
+                return cachedConnectionProfiles;
+            }
+        }
+    } catch (e) {
+        console.log('[Gatekeeper] /api/profiles not available, trying settings...');
+    }
+    
+    try {
+        // Method 2: Try getting from settings
+        const response = await fetch('/api/settings/get', { method: 'POST' });
+        const data = await response.json();
+        
+        const possibleLocations = [
+            data?.connectionManager?.profiles,
+            data?.connection_profiles,
+            data?.profiles
+        ];
+        
+        for (const location of possibleLocations) {
+            if (location) {
+                if (Array.isArray(location)) {
+                    cachedConnectionProfiles = location.map(p => typeof p === 'string' ? p : p.name).filter(Boolean);
+                } else if (typeof location === 'object') {
+                    cachedConnectionProfiles = Object.keys(location);
+                }
+                if (cachedConnectionProfiles.length > 0) {
+                    console.log('[Gatekeeper] Found profiles in settings:', cachedConnectionProfiles);
+                    return cachedConnectionProfiles;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[Gatekeeper] Error fetching profiles from settings:', e);
+    }
+    
+    // Method 3: Check DOM for profile dropdown
+    const profileSelect = document.querySelector('#connection_profile_selector, #api_profiles, select[data-profile-selector]');
+    if (profileSelect) {
+        cachedConnectionProfiles = Array.from(profileSelect.options)
+            .map(opt => opt.value || opt.textContent)
+            .filter(v => v && v !== 'default' && v !== '' && v !== '-- Select --');
+        if (cachedConnectionProfiles.length > 0) {
+            console.log('[Gatekeeper] Found profiles from DOM:', cachedConnectionProfiles);
+            return cachedConnectionProfiles;
+        }
+    }
+    
+    console.warn('[Gatekeeper] Could not find connection profiles');
+    return [];
 }
 
 /**
@@ -303,11 +387,6 @@ async function callGatekeeper() {
         return null;
     }
     
-    if (!settings.apiKey) {
-        console.warn('[Gatekeeper] No API key configured');
-        return null;
-    }
-    
     const context = buildGatekeeperContext();
     if (!context) return null;
     
@@ -332,105 +411,160 @@ ${JSON.stringify(context.current_gm_document, null, 2)}
 Based on the above, decide your action. Remember: not every turn needs intervention.`;
 
     try {
-        const provider = settings.apiProvider || 'openai';
-        const providerConfig = API_PROVIDERS[provider] || API_PROVIDERS.custom;
-        const apiUrl = settings.apiUrl || providerConfig.defaultUrl;
-        const model = settings.apiModel || (providerConfig.models[0] || 'gpt-4o-mini');
+        let responseContent = null;
         
-        let response;
-        
-        if (provider === 'anthropic') {
-            // Anthropic API format
-            response = await fetch(`${apiUrl}/messages`, {
-                method: 'POST',
-                headers: {
+        // Option 1: Use Connection Profile (via ST backend)
+        if (settings.useConnectionProfile && settings.connectionProfile) {
+            console.log('[Gatekeeper] Using connection profile:', settings.connectionProfile);
+            
+            // Switch to the Gatekeeper profile temporarily
+            const stContext = getContext();
+            const { executeSlashCommandsWithOptions } = stContext;
+            
+            // Store current profile to restore later (optional)
+            const quotedProfile = settings.connectionProfile.includes(' ') 
+                ? `"${settings.connectionProfile}"` 
+                : settings.connectionProfile;
+            
+            try {
+                // Switch profile
+                await executeSlashCommandsWithOptions(`/profile ${quotedProfile}`, {
+                    handleExecutionErrors: false,
+                    handleParserErrors: false,
+                });
+                
+                // Make request through ST backend
+                const response = await fetch('/api/backends/chat/completions', {
+                    method: 'POST',
+                    headers: getRequestHeaders ? getRequestHeaders() : { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [
+                            { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
+                            { role: 'user', content: userMessage }
+                        ],
+                        max_tokens: 1500,
+                        temperature: 0.8
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Gatekeeper] ST backend error:', response.status, errorText);
+                    return null;
+                }
+                
+                const data = await response.json();
+                responseContent = data.choices?.[0]?.message?.content;
+                
+            } catch (profileError) {
+                console.error('[Gatekeeper] Profile switch/request failed:', profileError);
+                return null;
+            }
+            
+        } 
+        // Option 2: Direct API call
+        else if (settings.apiKey) {
+            const provider = settings.apiProvider || 'openrouter';
+            const providerConfig = API_PROVIDERS[provider] || API_PROVIDERS.custom;
+            const apiUrl = settings.apiUrl || providerConfig.defaultUrl;
+            const model = settings.apiModel || (providerConfig.models[0] || 'gpt-4o-mini');
+            
+            let response;
+            
+            if (provider === 'anthropic') {
+                // Anthropic API format
+                response = await fetch(`${apiUrl}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': settings.apiKey,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        max_tokens: 1500,
+                        system: GATEKEEPER_SYSTEM_PROMPT,
+                        messages: [
+                            { role: 'user', content: userMessage }
+                        ]
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Gatekeeper] Anthropic API error:', response.status, errorText);
+                    return null;
+                }
+                
+                const data = await response.json();
+                responseContent = data.content?.[0]?.text;
+                
+            } else {
+                // OpenAI-compatible API format
+                const headers = {
                     'Content-Type': 'application/json',
-                    'x-api-key': settings.apiKey,
-                    'anthropic-version': '2023-06-01'
-                },
-                body: JSON.stringify({
-                    model: model,
-                    max_tokens: 1000,
-                    system: GATEKEEPER_SYSTEM_PROMPT,
-                    messages: [
-                        { role: 'user', content: userMessage }
-                    ]
-                })
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[Gatekeeper] Anthropic API error:', response.status, errorText);
-                return null;
+                    'Authorization': `Bearer ${settings.apiKey}`
+                };
+                
+                if (provider === 'openrouter') {
+                    headers['HTTP-Referer'] = window.location.origin;
+                    headers['X-Title'] = 'SillyTavern AI Gatekeeper';
+                }
+                
+                response = await fetch(`${apiUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
+                            { role: 'user', content: userMessage }
+                        ],
+                        max_tokens: 1500,
+                        temperature: 0.8
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Gatekeeper] API error:', response.status, errorText);
+                    return null;
+                }
+                
+                const data = await response.json();
+                responseContent = data.choices?.[0]?.message?.content;
             }
-            
-            const data = await response.json();
-            const content = data.content?.[0]?.text;
-            
-            if (!content) {
-                console.error('[Gatekeeper] Empty Anthropic response');
-                return null;
-            }
-            
-            const gatekeeperResponse = JSON.parse(content);
-            
-            if (gatekeeperResponse.gm_document_update) {
-                saveGMDocument(gatekeeperResponse.gm_document_update);
-            }
-            
-            console.log('[Gatekeeper] Decision:', gatekeeperResponse.action, gatekeeperResponse.reasoning);
-            return gatekeeperResponse;
-            
         } else {
-            // OpenAI-compatible API format (OpenAI, OpenRouter, Custom)
-            const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.apiKey}`
-            };
-            
-            // OpenRouter requires additional headers
-            if (provider === 'openrouter') {
-                headers['HTTP-Referer'] = window.location.origin;
-                headers['X-Title'] = 'SillyTavern AI Gatekeeper';
-            }
-            
-            response = await fetch(`${apiUrl}/chat/completions`, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({
-                    model: model,
-                    messages: [
-                        { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
-                        { role: 'user', content: userMessage }
-                    ],
-                    max_tokens: 1000,
-                    temperature: 0.8
-                })
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[Gatekeeper] API error:', response.status, errorText);
-                return null;
-            }
-            
-            const data = await response.json();
-            const content = data.choices?.[0]?.message?.content;
-            
-            if (!content) {
-                console.error('[Gatekeeper] Empty response');
-                return null;
-            }
-            
-            const gatekeeperResponse = JSON.parse(content);
-            
-            if (gatekeeperResponse.gm_document_update) {
-                saveGMDocument(gatekeeperResponse.gm_document_update);
-            }
-            
-            console.log('[Gatekeeper] Decision:', gatekeeperResponse.action, gatekeeperResponse.reasoning);
-            return gatekeeperResponse;
+            console.warn('[Gatekeeper] No connection profile or API key configured');
+            return null;
         }
+        
+        if (!responseContent) {
+            console.error('[Gatekeeper] Empty response');
+            return null;
+        }
+        
+        // Parse JSON response (handle potential markdown code blocks)
+        let cleanContent = responseContent.trim();
+        if (cleanContent.startsWith('```json')) {
+            cleanContent = cleanContent.slice(7);
+        } else if (cleanContent.startsWith('```')) {
+            cleanContent = cleanContent.slice(3);
+        }
+        if (cleanContent.endsWith('```')) {
+            cleanContent = cleanContent.slice(0, -3);
+        }
+        cleanContent = cleanContent.trim();
+        
+        const gatekeeperResponse = JSON.parse(cleanContent);
+        
+        if (gatekeeperResponse.gm_document_update) {
+            saveGMDocument(gatekeeperResponse.gm_document_update);
+        }
+        
+        console.log('[Gatekeeper] Decision:', gatekeeperResponse.action, '|', gatekeeperResponse.reasoning);
+        
+        return gatekeeperResponse;
         
     } catch (error) {
         console.error('[Gatekeeper] Error:', error);
@@ -681,6 +815,31 @@ function addToExtensionsMenu() {
 }
 
 /**
+ * Populate connection profiles dropdown
+ */
+async function populateConnectionProfiles() {
+    const profileSelect = document.getElementById('gatekeeper-connection-profile');
+    if (!profileSelect) return;
+    
+    await getConnectionProfiles();
+    
+    const settings = getSettings();
+    const currentValue = settings.connectionProfile || '';
+    
+    profileSelect.innerHTML = '<option value="">-- Select Profile --</option>';
+    
+    for (const profile of cachedConnectionProfiles) {
+        const option = document.createElement('option');
+        option.value = profile;
+        option.textContent = profile;
+        if (profile === currentValue) {
+            option.selected = true;
+        }
+        profileSelect.appendChild(option);
+    }
+}
+
+/**
  * Populate model dropdown based on provider
  */
 function populateModelDropdown(provider) {
@@ -696,6 +855,21 @@ function populateModelDropdown(provider) {
         option.value = model;
         option.textContent = model;
         modelSelect.appendChild(option);
+    }
+}
+
+/**
+ * Toggle between profile mode and direct API mode
+ */
+function toggleApiMode(useProfile) {
+    const profileSection = document.getElementById('gatekeeper-profile-section');
+    const directApiSection = document.getElementById('gatekeeper-direct-api-section');
+    
+    if (profileSection) {
+        profileSection.style.display = useProfile ? 'block' : 'none';
+    }
+    if (directApiSection) {
+        directApiSection.style.display = useProfile ? 'none' : 'block';
     }
 }
 
@@ -717,7 +891,7 @@ async function testApiConnection() {
     }
     
     try {
-        const provider = settings.apiProvider || 'openai';
+        const provider = settings.apiProvider || 'openrouter';
         const providerConfig = API_PROVIDERS[provider] || API_PROVIDERS.custom;
         const apiUrl = settings.apiUrl || providerConfig.defaultUrl;
         const model = settings.apiModel || (providerConfig.models[0] || 'gpt-4o-mini');
@@ -789,12 +963,33 @@ function bindSettingsEvents() {
         if (saveSettingsDebounced) saveSettingsDebounced();
     });
     
-    // API Configuration
+    // Connection Profile Mode Toggle
+    $('#gatekeeper-use-profile').on('change', function() {
+        settings.useConnectionProfile = $(this).is(':checked');
+        toggleApiMode(settings.useConnectionProfile);
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    // Connection Profile Selection
+    $('#gatekeeper-connection-profile').on('change', function() {
+        settings.connectionProfile = $(this).val();
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    // Refresh Profiles Button
+    $('#gatekeeper-refresh-profiles').on('click', async function() {
+        const btn = $(this);
+        btn.find('i').addClass('fa-spin');
+        await populateConnectionProfiles();
+        btn.find('i').removeClass('fa-spin');
+        showToast(`Found ${cachedConnectionProfiles.length} profiles`, 'info');
+    });
+    
+    // Direct API Configuration
     $('#gatekeeper-provider').on('change', function() {
         settings.apiProvider = $(this).val();
         populateModelDropdown(settings.apiProvider);
         
-        // Set default URL hint
         const providerConfig = API_PROVIDERS[settings.apiProvider];
         if (providerConfig?.defaultUrl) {
             $('#gatekeeper-api-url').attr('placeholder', providerConfig.defaultUrl);
@@ -864,14 +1059,23 @@ function bindSettingsEvents() {
 /**
  * Update settings UI with current values
  */
-function updateSettingsUI() {
+async function updateSettingsUI() {
     const settings = getSettings();
     
     $('#gatekeeper-enabled').prop('checked', settings.enabled);
     
-    // API Configuration
-    $('#gatekeeper-provider').val(settings.apiProvider || 'openai');
-    populateModelDropdown(settings.apiProvider || 'openai');
+    // Connection Profile Mode
+    const useProfile = settings.useConnectionProfile !== false; // Default to true
+    $('#gatekeeper-use-profile').prop('checked', useProfile);
+    toggleApiMode(useProfile);
+    
+    // Populate and select connection profile
+    await populateConnectionProfiles();
+    $('#gatekeeper-connection-profile').val(settings.connectionProfile || '');
+    
+    // Direct API Configuration
+    $('#gatekeeper-provider').val(settings.apiProvider || 'openrouter');
+    populateModelDropdown(settings.apiProvider || 'openrouter');
     $('#gatekeeper-model').val(settings.apiModel || '');
     $('#gatekeeper-model-custom').val(settings.apiModel || '');
     $('#gatekeeper-api-url').val(settings.apiUrl || '');
@@ -979,7 +1183,7 @@ function updateStatusDisplay() {
         
         // Bind events and update UI
         bindSettingsEvents();
-        updateSettingsUI();
+        await updateSettingsUI();
         
         // Add to extensions menu
         addToExtensionsMenu();

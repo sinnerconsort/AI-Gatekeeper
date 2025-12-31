@@ -18,37 +18,64 @@
             <!-- API Configuration -->
             <h4><i class="fa-solid fa-plug"></i> API Configuration</h4>
             
+            <!-- Connection Profile Mode -->
             <div class="gatekeeper-setting-row">
-                <label>AI Provider *</label>
-                <select id="gatekeeper-provider" class="text_pole">
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="openrouter">OpenRouter</option>
-                    <option value="custom">Custom / Local (OpenAI Compatible)</option>
-                </select>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="gatekeeper-use-profile" checked />
+                    <span>Use Connection Profile</span>
+                </label>
+                <small class="notes">Use an existing SillyTavern connection profile (recommended)</small>
             </div>
             
-            <div class="gatekeeper-setting-row">
-                <label>AI Model *</label>
-                <select id="gatekeeper-model" class="text_pole">
-                    <option value="">-- Select Model --</option>
-                </select>
-                <input type="text" id="gatekeeper-model-custom" class="text_pole" placeholder="Or type model name..." style="margin-top: 5px;" />
+            <div id="gatekeeper-profile-section">
+                <div class="gatekeeper-setting-row">
+                    <label>Connection Profile *</label>
+                    <div style="display: flex; gap: 5px;">
+                        <select id="gatekeeper-connection-profile" class="text_pole" style="flex: 1;">
+                            <option value="">-- Select Profile --</option>
+                        </select>
+                        <button id="gatekeeper-refresh-profiles" class="menu_button" title="Refresh Profiles">
+                            <i class="fa-solid fa-refresh"></i>
+                        </button>
+                    </div>
+                    <small class="notes">Select a profile from Connection Manager</small>
+                </div>
             </div>
             
-            <div class="gatekeeper-setting-row">
-                <label>API URL (Optional)</label>
-                <input type="text" id="gatekeeper-api-url" class="text_pole" placeholder="https://api.openai.com/v1" />
-                <small class="notes">Leave blank for default. Required for Custom provider.</small>
-            </div>
-            
-            <div class="gatekeeper-setting-row">
-                <label>API Key *</label>
-                <div style="display: flex; gap: 5px;">
-                    <input type="password" id="gatekeeper-api-key" class="text_pole" placeholder="sk-..." style="flex: 1;" />
-                    <button id="gatekeeper-test-connection" class="menu_button" title="Test Connection">
-                        <i class="fa-solid fa-vial"></i>
-                    </button>
+            <!-- Direct API Mode (hidden by default) -->
+            <div id="gatekeeper-direct-api-section" style="display: none;">
+                <div class="gatekeeper-setting-row">
+                    <label>AI Provider *</label>
+                    <select id="gatekeeper-provider" class="text_pole">
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="custom">Custom / Local (OpenAI Compatible)</option>
+                    </select>
+                </div>
+                
+                <div class="gatekeeper-setting-row">
+                    <label>AI Model *</label>
+                    <select id="gatekeeper-model" class="text_pole">
+                        <option value="">-- Select Model --</option>
+                    </select>
+                    <input type="text" id="gatekeeper-model-custom" class="text_pole" placeholder="Or type model name..." style="margin-top: 5px;" />
+                </div>
+                
+                <div class="gatekeeper-setting-row">
+                    <label>API URL (Optional)</label>
+                    <input type="text" id="gatekeeper-api-url" class="text_pole" placeholder="https://api.openai.com/v1" />
+                    <small class="notes">Leave blank for default. Required for Custom provider.</small>
+                </div>
+                
+                <div class="gatekeeper-setting-row">
+                    <label>API Key *</label>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="password" id="gatekeeper-api-key" class="text_pole" placeholder="sk-..." style="flex: 1;" />
+                        <button id="gatekeeper-test-connection" class="menu_button" title="Test Connection">
+                            <i class="fa-solid fa-vial"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
             
