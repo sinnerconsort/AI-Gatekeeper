@@ -551,37 +551,81 @@ Based on the above, decide your action. Remember: not every turn needs intervent
         apiUrl = apiUrl || providerConfig.defaultUrl;
         model = model || (providerConfig.models[0] || 'anthropic/claude-sonnet-4');
         
-        console.log(`[Gatekeeper] Calling ${provider} model: ${model}`);
+        // Construct full URL and log for debugging
+        const fullUrl = provider === 'anthropic' 
+            ? `${apiUrl}/messages`
+            : `${apiUrl}/chat/completions`;
         
-        let response;
+        console.log(`[Gatekeeper] Calling ${provider}`);
+        console.log(`[Gatekeeper] URL: ${fullUrl}`);
+        console.log(`[Gatekeeper] Model: ${model}`);
+        
+        // Validate URL is external (not ST backend)
+        if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+            console.error('[Gatekeeper] Invalid API URL - must be a full URL starting with http:// or https://');
+            console.error('[Gatekeeper] Got:', fullUrl);
+            return null;
+        }
+        
+        // Use XMLHttpRequest to bypass potential fetch interceptors in ST
+        const makeXHRRequest = (url, headers, body) => {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', url, true);
+                
+                // Set headers
+                for (const [key, value] of Object.entries(headers)) {
+                    xhr.setRequestHeader(key, value);
+                }
+                
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4) {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            try {
+                                resolve(JSON.parse(xhr.responseText));
+                            } catch (e) {
+                                reject(new Error('Failed to parse response: ' + xhr.responseText));
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText}`));
+                        }
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    reject(new Error('Network error - request failed'));
+                };
+                
+                xhr.send(JSON.stringify(body));
+            });
+        };
+        
+        let data;
         
         if (provider === 'anthropic') {
             // Anthropic API format
-            response = await fetch(`${apiUrl}/messages`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01'
-                },
-                body: JSON.stringify({
-                    model: model,
-                    max_tokens: 1500,
-                    system: GATEKEEPER_SYSTEM_PROMPT,
-                    messages: [
-                        { role: 'user', content: userMessage }
-                    ]
-                })
-            });
+            const headers = {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            };
             
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[Gatekeeper] Anthropic API error:', response.status, errorText);
+            const body = {
+                model: model,
+                max_tokens: 1500,
+                system: GATEKEEPER_SYSTEM_PROMPT,
+                messages: [
+                    { role: 'user', content: userMessage }
+                ]
+            };
+            
+            try {
+                data = await makeXHRRequest(fullUrl, headers, body);
+                responseContent = data.content?.[0]?.text;
+            } catch (error) {
+                console.error('[Gatekeeper] Anthropic API error:', error.message);
                 return null;
             }
-            
-            const data = await response.json();
-            responseContent = data.content?.[0]?.text;
             
         } else {
             // OpenAI-compatible API format (OpenRouter, OpenAI, Custom)
@@ -595,28 +639,23 @@ Based on the above, decide your action. Remember: not every turn needs intervent
                 headers['X-Title'] = 'SillyTavern AI Gatekeeper';
             }
             
-            response = await fetch(`${apiUrl}/chat/completions`, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({
-                    model: model,
-                    messages: [
-                        { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
-                        { role: 'user', content: userMessage }
-                    ],
-                    max_tokens: 1500,
-                    temperature: 0.8
-                })
-            });
+            const body = {
+                model: model,
+                messages: [
+                    { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
+                    { role: 'user', content: userMessage }
+                ],
+                max_tokens: 1500,
+                temperature: 0.8
+            };
             
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[Gatekeeper] API error:', response.status, errorText);
+            try {
+                data = await makeXHRRequest(fullUrl, headers, body);
+                responseContent = data.choices?.[0]?.message?.content;
+            } catch (error) {
+                console.error('[Gatekeeper] API error:', error.message);
                 return null;
             }
-            
-            const data = await response.json();
-            responseContent = data.choices?.[0]?.message?.content;
         }
         
         if (!responseContent) {
@@ -886,7 +925,13 @@ async function loadSettingsHTML() {
         const module_dir = getExtensionDirectory();
         const path = `${module_dir}/settings.html`;
         
-        const response = await fetch(path);
+        // Use proper headers for ST fetch
+        const headers = getRequestHeaders ? getRequestHeaders() : { 'Content-Type': 'text/html' };
+        
+        const response = await fetch(path, { 
+            method: 'GET',
+            headers: headers
+        });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -1073,49 +1118,57 @@ async function testApiConnection() {
         const apiUrl = settings.apiUrl || providerConfig.defaultUrl;
         const model = settings.apiModel || (providerConfig.models[0] || 'gpt-4o-mini');
         
-        let response;
+        const fullUrl = provider === 'anthropic' 
+            ? `${apiUrl}/messages`
+            : `${apiUrl}/chat/completions`;
         
-        if (provider === 'anthropic') {
-            response = await fetch(`${apiUrl}/messages`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': settings.apiKey,
-                    'anthropic-version': '2023-06-01'
-                },
-                body: JSON.stringify({
-                    model: model,
-                    max_tokens: 10,
-                    messages: [{ role: 'user', content: 'Hi' }]
-                })
-            });
-        } else {
-            const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.apiKey}`
-            };
+        console.log('[Gatekeeper] Testing connection to:', fullUrl);
+        console.log('[Gatekeeper] Provider:', provider);
+        console.log('[Gatekeeper] Model:', model);
+        
+        // Use XMLHttpRequest to bypass potential fetch interceptors
+        const result = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', fullUrl, true);
             
-            if (provider === 'openrouter') {
-                headers['HTTP-Referer'] = window.location.origin;
+            // Set headers based on provider
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            
+            if (provider === 'anthropic') {
+                xhr.setRequestHeader('x-api-key', settings.apiKey);
+                xhr.setRequestHeader('anthropic-version', '2023-06-01');
+            } else {
+                xhr.setRequestHeader('Authorization', `Bearer ${settings.apiKey}`);
+                if (provider === 'openrouter') {
+                    xhr.setRequestHeader('HTTP-Referer', window.location.origin);
+                    xhr.setRequestHeader('X-Title', 'SillyTavern AI Gatekeeper');
+                }
             }
             
-            response = await fetch(`${apiUrl}/chat/completions`, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({
-                    model: model,
-                    messages: [{ role: 'user', content: 'Hi' }],
-                    max_tokens: 10
-                })
-            });
-        }
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    resolve({ status: xhr.status, response: xhr.responseText });
+                }
+            };
+            
+            xhr.onerror = function() {
+                reject(new Error('Network error - check console for details'));
+            };
+            
+            // Send minimal test payload
+            const body = provider === 'anthropic' 
+                ? { model: model, max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] }
+                : { model: model, messages: [{ role: 'user', content: 'Hi' }], max_tokens: 10 };
+            
+            xhr.send(JSON.stringify(body));
+        });
         
-        if (response.ok) {
+        if (result.status >= 200 && result.status < 300) {
             showToast('Connection successful! ✓', 'success');
+            console.log('[Gatekeeper] Test response:', result.response);
         } else {
-            const errorText = await response.text();
-            showToast(`Connection failed: ${response.status}`, 'error');
-            console.error('[Gatekeeper] Test failed:', errorText);
+            showToast(`Connection failed: ${result.status}`, 'error');
+            console.error('[Gatekeeper] Test failed:', result.status, result.response);
         }
         
     } catch (error) {
