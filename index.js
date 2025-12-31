@@ -83,12 +83,15 @@ const API_PROVIDERS = {
         name: 'OpenRouter',
         defaultUrl: 'https://openrouter.ai/api/v1',
         models: [
-            'anthropic/claude-opus-4-5',
-            'anthropic/claude-sonnet-4-5', 
-            'anthropic/claude-haiku-4-5',
+            // Claude 4.5 models (use dots, not dashes!)
+            'anthropic/claude-opus-4.5',
+            'anthropic/claude-sonnet-4.5', 
+            'anthropic/claude-haiku-4.5',
+            // Claude 4 models
             'anthropic/claude-opus-4',
             'anthropic/claude-sonnet-4',
             'anthropic/claude-haiku-4',
+            // Other providers
             'openai/gpt-4o',
             'openai/gpt-4o-mini',
             'google/gemini-2.5-flash',
@@ -654,6 +657,22 @@ Based on the above, decide your action. Remember: not every turn needs intervent
                 responseContent = data.choices?.[0]?.message?.content;
             } catch (error) {
                 console.error('[Gatekeeper] API error:', error.message);
+                // Log the full error for debugging
+                console.error('[Gatekeeper] Request body was:', JSON.stringify(body, null, 2));
+                
+                // Try to parse error response for more details
+                try {
+                    const errorMatch = error.message.match(/HTTP \d+: (.+)/);
+                    if (errorMatch) {
+                        const errorJson = JSON.parse(errorMatch[1]);
+                        console.error('[Gatekeeper] API error details:', errorJson);
+                        if (errorJson.error?.message) {
+                            showToast(`API Error: ${errorJson.error.message}`, 'error');
+                        }
+                    }
+                } catch (e) {
+                    // Couldn't parse error JSON
+                }
                 return null;
             }
         }
@@ -1167,7 +1186,22 @@ async function testApiConnection() {
             showToast('Connection successful! ✓', 'success');
             console.log('[Gatekeeper] Test response:', result.response);
         } else {
-            showToast(`Connection failed: ${result.status}`, 'error');
+            // Try to parse error message from response
+            let errorMsg = `Status ${result.status}`;
+            try {
+                const errorJson = JSON.parse(result.response);
+                if (errorJson.error?.message) {
+                    errorMsg = errorJson.error.message;
+                } else if (errorJson.message) {
+                    errorMsg = errorJson.message;
+                }
+            } catch (e) {
+                // Use raw response if not JSON
+                if (result.response && result.response.length < 100) {
+                    errorMsg = result.response;
+                }
+            }
+            showToast(`Connection failed: ${errorMsg}`, 'error');
             console.error('[Gatekeeper] Test failed:', result.status, result.response);
         }
         
