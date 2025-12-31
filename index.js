@@ -36,7 +36,12 @@ let extension_settings = null;
 // Default settings
 const defaultSettings = {
     enabled: false,
-    profileId: null,
+    
+    // API Configuration (Sidecar-style)
+    apiProvider: 'openai',  // openai, anthropic, custom
+    apiModel: '',
+    apiUrl: '',
+    apiKey: '',
     
     // World Settings
     setting: 'realistic',
@@ -49,6 +54,30 @@ const defaultSettings = {
     
     // GM Document fallback
     gmDocument: null,
+};
+
+// Provider configurations
+const API_PROVIDERS = {
+    openai: {
+        name: 'OpenAI',
+        defaultUrl: 'https://api.openai.com/v1',
+        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
+    },
+    anthropic: {
+        name: 'Anthropic',
+        defaultUrl: 'https://api.anthropic.com/v1',
+        models: ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229']
+    },
+    openrouter: {
+        name: 'OpenRouter',
+        defaultUrl: 'https://openrouter.ai/api/v1',
+        models: [] // Dynamic
+    },
+    custom: {
+        name: 'Custom / Local',
+        defaultUrl: '',
+        models: []
+    }
 };
 
 // In-memory GM document for current chat
@@ -265,12 +294,17 @@ function buildGatekeeperContext() {
 }
 
 /**
- * Call the Gatekeeper model
+ * Call the Gatekeeper model using configured API
  */
 async function callGatekeeper() {
     const settings = getSettings();
     
     if (!settings.enabled) {
+        return null;
+    }
+    
+    if (!settings.apiKey) {
+        console.warn('[Gatekeeper] No API key configured');
         return null;
     }
     
@@ -298,42 +332,105 @@ ${JSON.stringify(context.current_gm_document, null, 2)}
 Based on the above, decide your action. Remember: not every turn needs intervention.`;
 
     try {
-        // TODO: Use selected profile's API settings via Multi-Model integration
-        const response = await fetch('/api/backends/chat/completions', {
-            method: 'POST',
-            headers: getRequestHeaders ? getRequestHeaders() : { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                messages: [
-                    { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
-                    { role: 'user', content: userMessage }
-                ],
-                max_tokens: 1000,
-                temperature: 0.8
-            })
-        });
+        const provider = settings.apiProvider || 'openai';
+        const providerConfig = API_PROVIDERS[provider] || API_PROVIDERS.custom;
+        const apiUrl = settings.apiUrl || providerConfig.defaultUrl;
+        const model = settings.apiModel || (providerConfig.models[0] || 'gpt-4o-mini');
         
-        if (!response.ok) {
-            console.error('[Gatekeeper] API call failed:', response.status);
-            return null;
+        let response;
+        
+        if (provider === 'anthropic') {
+            // Anthropic API format
+            response = await fetch(`${apiUrl}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': settings.apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: model,
+                    max_tokens: 1000,
+                    system: GATEKEEPER_SYSTEM_PROMPT,
+                    messages: [
+                        { role: 'user', content: userMessage }
+                    ]
+                })
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Gatekeeper] Anthropic API error:', response.status, errorText);
+                return null;
+            }
+            
+            const data = await response.json();
+            const content = data.content?.[0]?.text;
+            
+            if (!content) {
+                console.error('[Gatekeeper] Empty Anthropic response');
+                return null;
+            }
+            
+            const gatekeeperResponse = JSON.parse(content);
+            
+            if (gatekeeperResponse.gm_document_update) {
+                saveGMDocument(gatekeeperResponse.gm_document_update);
+            }
+            
+            console.log('[Gatekeeper] Decision:', gatekeeperResponse.action, gatekeeperResponse.reasoning);
+            return gatekeeperResponse;
+            
+        } else {
+            // OpenAI-compatible API format (OpenAI, OpenRouter, Custom)
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${settings.apiKey}`
+            };
+            
+            // OpenRouter requires additional headers
+            if (provider === 'openrouter') {
+                headers['HTTP-Referer'] = window.location.origin;
+                headers['X-Title'] = 'SillyTavern AI Gatekeeper';
+            }
+            
+            response = await fetch(`${apiUrl}/chat/completions`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    model: model,
+                    messages: [
+                        { role: 'system', content: GATEKEEPER_SYSTEM_PROMPT },
+                        { role: 'user', content: userMessage }
+                    ],
+                    max_tokens: 1000,
+                    temperature: 0.8
+                })
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Gatekeeper] API error:', response.status, errorText);
+                return null;
+            }
+            
+            const data = await response.json();
+            const content = data.choices?.[0]?.message?.content;
+            
+            if (!content) {
+                console.error('[Gatekeeper] Empty response');
+                return null;
+            }
+            
+            const gatekeeperResponse = JSON.parse(content);
+            
+            if (gatekeeperResponse.gm_document_update) {
+                saveGMDocument(gatekeeperResponse.gm_document_update);
+            }
+            
+            console.log('[Gatekeeper] Decision:', gatekeeperResponse.action, gatekeeperResponse.reasoning);
+            return gatekeeperResponse;
         }
-        
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content;
-        
-        if (!content) {
-            console.error('[Gatekeeper] Empty response');
-            return null;
-        }
-        
-        const gatekeeperResponse = JSON.parse(content);
-        
-        if (gatekeeperResponse.gm_document_update) {
-            saveGMDocument(gatekeeperResponse.gm_document_update);
-        }
-        
-        console.log('[Gatekeeper] Decision:', gatekeeperResponse.action, gatekeeperResponse.reasoning);
-        
-        return gatekeeperResponse;
         
     } catch (error) {
         console.error('[Gatekeeper] Error:', error);
@@ -584,6 +681,104 @@ function addToExtensionsMenu() {
 }
 
 /**
+ * Populate model dropdown based on provider
+ */
+function populateModelDropdown(provider) {
+    const modelSelect = document.getElementById('gatekeeper-model');
+    if (!modelSelect) return;
+    
+    const providerConfig = API_PROVIDERS[provider] || API_PROVIDERS.custom;
+    
+    modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
+    
+    for (const model of providerConfig.models) {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        modelSelect.appendChild(option);
+    }
+}
+
+/**
+ * Test the API connection
+ */
+async function testApiConnection() {
+    const settings = getSettings();
+    
+    if (!settings.apiKey) {
+        showToast('Please enter an API key first', 'warning');
+        return;
+    }
+    
+    const testBtn = document.getElementById('gatekeeper-test-connection');
+    if (testBtn) {
+        testBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        testBtn.disabled = true;
+    }
+    
+    try {
+        const provider = settings.apiProvider || 'openai';
+        const providerConfig = API_PROVIDERS[provider] || API_PROVIDERS.custom;
+        const apiUrl = settings.apiUrl || providerConfig.defaultUrl;
+        const model = settings.apiModel || (providerConfig.models[0] || 'gpt-4o-mini');
+        
+        let response;
+        
+        if (provider === 'anthropic') {
+            response = await fetch(`${apiUrl}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': settings.apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: model,
+                    max_tokens: 10,
+                    messages: [{ role: 'user', content: 'Hi' }]
+                })
+            });
+        } else {
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${settings.apiKey}`
+            };
+            
+            if (provider === 'openrouter') {
+                headers['HTTP-Referer'] = window.location.origin;
+            }
+            
+            response = await fetch(`${apiUrl}/chat/completions`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    model: model,
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 10
+                })
+            });
+        }
+        
+        if (response.ok) {
+            showToast('Connection successful! ✓', 'success');
+        } else {
+            const errorText = await response.text();
+            showToast(`Connection failed: ${response.status}`, 'error');
+            console.error('[Gatekeeper] Test failed:', errorText);
+        }
+        
+    } catch (error) {
+        showToast(`Connection error: ${error.message}`, 'error');
+        console.error('[Gatekeeper] Test error:', error);
+    } finally {
+        if (testBtn) {
+            testBtn.innerHTML = '<i class="fa-solid fa-vial"></i>';
+            testBtn.disabled = false;
+        }
+    }
+}
+
+/**
  * Bind settings UI events
  */
 function bindSettingsEvents() {
@@ -594,11 +789,46 @@ function bindSettingsEvents() {
         if (saveSettingsDebounced) saveSettingsDebounced();
     });
     
-    $('#gatekeeper-profile').on('change', function() {
-        settings.profileId = $(this).val();
+    // API Configuration
+    $('#gatekeeper-provider').on('change', function() {
+        settings.apiProvider = $(this).val();
+        populateModelDropdown(settings.apiProvider);
+        
+        // Set default URL hint
+        const providerConfig = API_PROVIDERS[settings.apiProvider];
+        if (providerConfig?.defaultUrl) {
+            $('#gatekeeper-api-url').attr('placeholder', providerConfig.defaultUrl);
+        }
+        
         if (saveSettingsDebounced) saveSettingsDebounced();
     });
     
+    $('#gatekeeper-model').on('change', function() {
+        settings.apiModel = $(this).val();
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    $('#gatekeeper-model-custom').on('change', function() {
+        const customModel = $(this).val().trim();
+        if (customModel) {
+            settings.apiModel = customModel;
+            if (saveSettingsDebounced) saveSettingsDebounced();
+        }
+    });
+    
+    $('#gatekeeper-api-url').on('change', function() {
+        settings.apiUrl = $(this).val().trim();
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    $('#gatekeeper-api-key').on('change', function() {
+        settings.apiKey = $(this).val().trim();
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    $('#gatekeeper-test-connection').on('click', testApiConnection);
+    
+    // World Settings
     $('#gatekeeper-setting').on('change', function() {
         settings.setting = $(this).val();
         if (saveSettingsDebounced) saveSettingsDebounced();
@@ -638,7 +868,16 @@ function updateSettingsUI() {
     const settings = getSettings();
     
     $('#gatekeeper-enabled').prop('checked', settings.enabled);
-    $('#gatekeeper-profile').val(settings.profileId || '');
+    
+    // API Configuration
+    $('#gatekeeper-provider').val(settings.apiProvider || 'openai');
+    populateModelDropdown(settings.apiProvider || 'openai');
+    $('#gatekeeper-model').val(settings.apiModel || '');
+    $('#gatekeeper-model-custom').val(settings.apiModel || '');
+    $('#gatekeeper-api-url').val(settings.apiUrl || '');
+    $('#gatekeeper-api-key').val(settings.apiKey || '');
+    
+    // World Settings
     $('#gatekeeper-setting').val(settings.setting);
     $('#gatekeeper-tone').val(settings.tone);
     $('#gatekeeper-pacing').val(settings.pacing);

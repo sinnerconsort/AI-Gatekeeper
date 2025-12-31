@@ -38,8 +38,22 @@ Gatekeeper runs silently alongside your chat, reading the scene and whispering t
 
 ## Configuration
 
-### Gatekeeper Profile
-Select which AI profile/connection the Gatekeeper uses. This can be different from your character models — use a reasoning-focused model for better narrative decisions.
+### API Configuration
+Gatekeeper needs its own API connection to make narrative decisions. Configure:
+
+| Field | Description |
+|-------|-------------|
+| **AI Provider** | OpenAI, Anthropic, OpenRouter, or Custom/Local |
+| **AI Model** | Select from dropdown or type custom model name |
+| **API URL** | Optional - leave blank for default endpoints |
+| **API Key** | Your API key for the selected provider |
+
+Use the **Test Connection** button to verify your settings work.
+
+**Recommended models for Gatekeeper:**
+- GPT-4o or GPT-4o-mini (good balance of reasoning and speed)
+- Claude 3.5 Sonnet (excellent narrative understanding)
+- Any reasoning-focused model
 
 ### World Settings
 
@@ -100,17 +114,40 @@ This persists across sessions, so threads can pay off much later.
 
 ## Multi-Model Integration
 
-Gatekeeper exposes a global `window.AIGatekeeper` object for integration with Multi-Model Chat:
+Gatekeeper exposes a global `window.AIGatekeeper` object for integration with Multi-Model Chat or other extensions:
 
 ```javascript
 // Get injection text for a specific character
 const injection = window.AIGatekeeper.getInjectionForCharacter('Astarion');
+if (injection) {
+    // Append to character's system prompt or author's note
+    characterPrompt += '\n\n' + injection;
+}
 
 // Manually trigger Gatekeeper analysis
 await window.AIGatekeeper.callGatekeeper();
 
 // Add a user seed programmatically
 window.AIGatekeeper.addUserSeed('Something should go wrong');
+
+// Check what's pending
+const pending = window.AIGatekeeper.getPendingInjection();
+```
+
+### Integrating with Multi-Model Chat
+
+In your Multi-Model extension, when building prompts for characters, call Gatekeeper to get any pending injections:
+
+```javascript
+// In your character generation flow:
+const charName = character.name;
+const gatekeeperInjection = window.AIGatekeeper?.getInjectionForCharacter(charName);
+
+if (gatekeeperInjection) {
+    // Inject into the character's context
+    // This could go in system prompt, author's note, or character jailbreak
+    modifiedPrompt += '\n\n' + gatekeeperInjection;
+}
 ```
 
 ## Tips
