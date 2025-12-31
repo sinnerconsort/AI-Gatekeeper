@@ -65,7 +65,7 @@ const API_PROVIDERS = {
     openai: {
         name: 'OpenAI',
         defaultUrl: 'https://api.openai.com/v1',
-        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano']
+        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o1', 'o1-mini', 'o3-mini']
     },
     anthropic: {
         name: 'Anthropic',
@@ -83,16 +83,21 @@ const API_PROVIDERS = {
         name: 'OpenRouter',
         defaultUrl: 'https://openrouter.ai/api/v1',
         models: [
+            'anthropic/claude-opus-4-5',
+            'anthropic/claude-sonnet-4-5', 
+            'anthropic/claude-haiku-4-5',
+            'anthropic/claude-opus-4',
             'anthropic/claude-sonnet-4',
             'anthropic/claude-haiku-4',
             'openai/gpt-4o',
             'openai/gpt-4o-mini',
-            'google/gemini-2.0-flash-001',
+            'google/gemini-2.5-flash',
+            'google/gemini-2.5-pro',
             'meta-llama/llama-3.3-70b-instruct'
         ]
     },
     custom: {
-        name: 'Custom / Local',
+        name: 'Custom / Local (OpenAI Compatible)',
         defaultUrl: '',
         models: []
     }
@@ -211,62 +216,146 @@ function getSettings() {
  * Fetch available connection profiles from SillyTavern
  */
 async function getConnectionProfiles() {
+    const headers = getRequestHeaders ? getRequestHeaders() : { 'Content-Type': 'application/json' };
+    
+    // Method 1: Try the connection-manager API (newer ST versions)
     try {
-        // Method 1: Try the connection profiles API
-        const response = await fetch('/api/profiles', { method: 'GET' });
+        const response = await fetch('/api/connection-manager/list', { 
+            method: 'GET',
+            headers: headers
+        });
         if (response.ok) {
             const profiles = await response.json();
             if (Array.isArray(profiles) && profiles.length > 0) {
-                cachedConnectionProfiles = profiles.map(p => typeof p === 'string' ? p : p.name).filter(Boolean);
-                console.log('[Gatekeeper] Found connection profiles:', cachedConnectionProfiles);
+                cachedConnectionProfiles = profiles.map(p => typeof p === 'string' ? p : (p.name || p.id)).filter(Boolean);
+                console.log('[Gatekeeper] Found profiles via connection-manager API:', cachedConnectionProfiles);
                 return cachedConnectionProfiles;
             }
         }
     } catch (e) {
-        console.log('[Gatekeeper] /api/profiles not available, trying settings...');
+        console.log('[Gatekeeper] /api/connection-manager/list not available:', e.message);
     }
     
+    // Method 2: Try getting profiles from context (most reliable for extensions)
     try {
-        // Method 2: Try getting from settings
-        const response = await fetch('/api/settings/get', { method: 'POST' });
-        const data = await response.json();
-        
-        const possibleLocations = [
-            data?.connectionManager?.profiles,
-            data?.connection_profiles,
-            data?.profiles
-        ];
-        
-        for (const location of possibleLocations) {
-            if (location) {
-                if (Array.isArray(location)) {
-                    cachedConnectionProfiles = location.map(p => typeof p === 'string' ? p : p.name).filter(Boolean);
-                } else if (typeof location === 'object') {
-                    cachedConnectionProfiles = Object.keys(location);
-                }
-                if (cachedConnectionProfiles.length > 0) {
-                    console.log('[Gatekeeper] Found profiles in settings:', cachedConnectionProfiles);
-                    return cachedConnectionProfiles;
+        const context = getContext ? getContext() : null;
+        if (context) {
+            // Check for connection profiles in various context locations
+            const possibleLocations = [
+                context.connectionProfiles,
+                context.connection_profiles,
+                context.connectionManager?.profiles,
+                context.settings?.connectionProfiles,
+                context.power_user?.connectionProfiles
+            ];
+            
+            for (const location of possibleLocations) {
+                if (location) {
+                    let profileNames = [];
+                    if (Array.isArray(location)) {
+                        profileNames = location.map(p => typeof p === 'string' ? p : (p.name || p.id)).filter(Boolean);
+                    } else if (typeof location === 'object') {
+                        profileNames = Object.keys(location).filter(k => k && k !== 'default');
+                    }
+                    if (profileNames.length > 0) {
+                        cachedConnectionProfiles = profileNames;
+                        console.log('[Gatekeeper] Found profiles in context:', cachedConnectionProfiles);
+                        return cachedConnectionProfiles;
+                    }
                 }
             }
         }
     } catch (e) {
-        console.error('[Gatekeeper] Error fetching profiles from settings:', e);
+        console.log('[Gatekeeper] Could not get profiles from context:', e.message);
     }
     
-    // Method 3: Check DOM for profile dropdown
-    const profileSelect = document.querySelector('#connection_profile_selector, #api_profiles, select[data-profile-selector]');
-    if (profileSelect) {
-        cachedConnectionProfiles = Array.from(profileSelect.options)
-            .map(opt => opt.value || opt.textContent)
-            .filter(v => v && v !== 'default' && v !== '' && v !== '-- Select --');
-        if (cachedConnectionProfiles.length > 0) {
-            console.log('[Gatekeeper] Found profiles from DOM:', cachedConnectionProfiles);
-            return cachedConnectionProfiles;
+    // Method 3: Try fetching from the settings API
+    try {
+        const response = await fetch('/api/settings/get', { 
+            method: 'POST',
+            headers: headers
+        });
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Check various possible locations in settings
+            const possibleLocations = [
+                data?.connectionManager?.profiles,
+                data?.connection_manager?.profiles,
+                data?.connectionProfiles,
+                data?.connection_profiles,
+                data?.profiles,
+                data?.power_user?.connectionProfiles,
+                data?.power_user?.connection_profiles
+            ];
+            
+            for (const location of possibleLocations) {
+                if (location) {
+                    let profileNames = [];
+                    if (Array.isArray(location)) {
+                        profileNames = location.map(p => typeof p === 'string' ? p : (p.name || p.id)).filter(Boolean);
+                    } else if (typeof location === 'object') {
+                        profileNames = Object.keys(location).filter(k => k && k !== 'default' && k !== '__proto__');
+                    }
+                    if (profileNames.length > 0) {
+                        cachedConnectionProfiles = profileNames;
+                        console.log('[Gatekeeper] Found profiles in settings:', cachedConnectionProfiles);
+                        return cachedConnectionProfiles;
+                    }
+                }
+            }
+            
+            // Debug: log the settings structure to help identify where profiles are
+            console.log('[Gatekeeper] Settings keys available:', Object.keys(data || {}));
+        }
+    } catch (e) {
+        console.error('[Gatekeeper] Error fetching from settings API:', e.message);
+    }
+    
+    // Method 4: Check DOM for profile dropdown (common selectors in ST UI)
+    const selectors = [
+        '#connection_profile',
+        '#connection-profile',
+        '#connectionProfile',
+        'select[name="connection_profile"]',
+        '.connection-profile-select',
+        '#api_button_openai ~ select',
+        '.connection_profile_block select',
+        '[data-connection-profile]'
+    ];
+    
+    for (const selector of selectors) {
+        try {
+            const profileSelect = document.querySelector(selector);
+            if (profileSelect && profileSelect.tagName === 'SELECT') {
+                const profiles = Array.from(profileSelect.options)
+                    .map(opt => opt.value || opt.textContent?.trim())
+                    .filter(v => v && v !== '' && !v.startsWith('--') && v !== 'None' && v !== '<None>');
+                if (profiles.length > 0) {
+                    cachedConnectionProfiles = profiles;
+                    console.log('[Gatekeeper] Found profiles from DOM (' + selector + '):', cachedConnectionProfiles);
+                    return cachedConnectionProfiles;
+                }
+            }
+        } catch (e) {
+            // Continue to next selector
         }
     }
     
-    console.warn('[Gatekeeper] Could not find connection profiles');
+    // Method 5: Use slash command to list profiles (if available)
+    try {
+        const context = getContext ? getContext() : null;
+        if (context?.executeSlashCommandsWithOptions) {
+            // This is a fallback - we'll try to get the profile list via slash command
+            // Note: This may not return results directly, but can help verify profiles exist
+            console.log('[Gatekeeper] Attempting to verify profiles via slash command...');
+        }
+    } catch (e) {
+        // Slash command approach not available
+    }
+    
+    console.warn('[Gatekeeper] Could not find connection profiles via any method');
+    console.log('[Gatekeeper] Debug tip: Check browser console for settings structure or try using direct API mode');
     return [];
 }
 
@@ -676,6 +765,97 @@ function showToast(message, type = 'info') {
 }
 
 /**
+ * Debug function to find where connection profiles are stored
+ * Call this from browser console: window.AIGatekeeper.debugProfiles()
+ */
+async function debugProfiles() {
+    console.log('=== [Gatekeeper] Profile Debug ===');
+    
+    // Check context
+    const context = getContext ? getContext() : null;
+    if (context) {
+        console.log('[Debug] Context keys:', Object.keys(context));
+        if (context.connectionProfiles) console.log('[Debug] context.connectionProfiles:', context.connectionProfiles);
+        if (context.connection_profiles) console.log('[Debug] context.connection_profiles:', context.connection_profiles);
+        if (context.connectionManager) console.log('[Debug] context.connectionManager:', context.connectionManager);
+    }
+    
+    // Check global objects
+    if (typeof SillyTavern !== 'undefined') {
+        console.log('[Debug] SillyTavern global keys:', Object.keys(SillyTavern));
+    }
+    if (typeof window.power_user !== 'undefined') {
+        console.log('[Debug] power_user keys:', Object.keys(window.power_user));
+    }
+    
+    // Find all select elements that might be profile dropdowns
+    const allSelects = document.querySelectorAll('select');
+    console.log('[Debug] Found', allSelects.length, 'select elements');
+    
+    allSelects.forEach((select, i) => {
+        const options = Array.from(select.options).map(o => o.value || o.textContent);
+        // Filter to selects that have interesting values (like "OR Opus" or other profile-like names)
+        const hasInterestingOptions = options.some(o => 
+            o && !o.startsWith('--') && o.length > 2 && 
+            !['true', 'false', 'on', 'off', '0', '1', '2', '3', '4', '5'].includes(o.toLowerCase())
+        );
+        if (hasInterestingOptions && options.length < 20) {
+            console.log(`[Debug] Select #${i}:`, {
+                id: select.id,
+                name: select.name,
+                className: select.className,
+                options: options.slice(0, 10)
+            });
+        }
+    });
+    
+    // Try API endpoints
+    console.log('[Debug] Testing API endpoints...');
+    
+    const endpoints = [
+        '/api/connection-manager/list',
+        '/api/connection-manager/profiles',
+        '/api/profiles',
+        '/api/settings/connection-profiles'
+    ];
+    
+    for (const endpoint of endpoints) {
+        try {
+            const headers = getRequestHeaders ? getRequestHeaders() : { 'Content-Type': 'application/json' };
+            const response = await fetch(endpoint, { method: 'GET', headers });
+            console.log(`[Debug] ${endpoint}: ${response.status} ${response.ok ? '✓' : '✗'}`);
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`[Debug] ${endpoint} data:`, data);
+            }
+        } catch (e) {
+            console.log(`[Debug] ${endpoint}: Error -`, e.message);
+        }
+    }
+    
+    // Check settings
+    try {
+        const headers = getRequestHeaders ? getRequestHeaders() : { 'Content-Type': 'application/json' };
+        const response = await fetch('/api/settings/get', { method: 'POST', headers });
+        if (response.ok) {
+            const data = await response.json();
+            console.log('[Debug] Settings top-level keys:', Object.keys(data || {}));
+            // Look for anything containing 'profile' or 'connection'
+            for (const key of Object.keys(data || {})) {
+                if (key.toLowerCase().includes('profile') || key.toLowerCase().includes('connection')) {
+                    console.log(`[Debug] settings.${key}:`, data[key]);
+                }
+            }
+        }
+    } catch (e) {
+        console.log('[Debug] Settings fetch error:', e.message);
+    }
+    
+    console.log('=== [Gatekeeper] End Profile Debug ===');
+    return 'Check console for debug output';
+}
+
+/**
  * Main hook: intercept before generation
  */
 async function onBeforeGeneration() {
@@ -973,7 +1153,21 @@ function bindSettingsEvents() {
     // Connection Profile Selection
     $('#gatekeeper-connection-profile').on('change', function() {
         settings.connectionProfile = $(this).val();
+        // Clear manual input when dropdown is used
+        $('#gatekeeper-profile-manual').val('');
         if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    // Manual Profile Input (fallback for when detection fails)
+    $('#gatekeeper-profile-manual').on('change', function() {
+        const manualProfile = $(this).val().trim();
+        if (manualProfile) {
+            settings.connectionProfile = manualProfile;
+            // Clear dropdown selection
+            $('#gatekeeper-connection-profile').val('');
+            showToast(`Using manual profile: ${manualProfile}`, 'info');
+            if (saveSettingsDebounced) saveSettingsDebounced();
+        }
     });
     
     // Refresh Profiles Button
@@ -1071,7 +1265,20 @@ async function updateSettingsUI() {
     
     // Populate and select connection profile
     await populateConnectionProfiles();
-    $('#gatekeeper-connection-profile').val(settings.connectionProfile || '');
+    
+    // Check if the saved profile is in the dropdown
+    const profileInDropdown = cachedConnectionProfiles.includes(settings.connectionProfile);
+    if (profileInDropdown) {
+        $('#gatekeeper-connection-profile').val(settings.connectionProfile || '');
+        $('#gatekeeper-profile-manual').val('');
+    } else if (settings.connectionProfile) {
+        // Profile not in dropdown, show it in manual input
+        $('#gatekeeper-connection-profile').val('');
+        $('#gatekeeper-profile-manual').val(settings.connectionProfile);
+    } else {
+        $('#gatekeeper-connection-profile').val('');
+        $('#gatekeeper-profile-manual').val('');
+    }
     
     // Direct API Configuration
     $('#gatekeeper-provider').val(settings.apiProvider || 'openrouter');
@@ -1213,5 +1420,6 @@ window.AIGatekeeper = {
     removeUserSeed,
     getSettings,
     loadGMDocument,
-    getPendingInjection: () => pendingInjection
+    getPendingInjection: () => pendingInjection,
+    debugProfiles  // Debug function to help identify profile storage
 };
