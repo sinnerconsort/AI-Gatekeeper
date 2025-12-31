@@ -18,16 +18,16 @@
             <!-- API Configuration -->
             <h4><i class="fa-solid fa-plug"></i> API Configuration</h4>
             
-            <!-- Connection Profile Mode -->
-            <div class="gatekeeper-setting-row">
+            <!-- Connection Profile Mode - Currently Disabled -->
+            <div class="gatekeeper-setting-row" style="display: none;">
                 <label class="checkbox_label">
-                    <input type="checkbox" id="gatekeeper-use-profile" checked />
+                    <input type="checkbox" id="gatekeeper-use-profile" />
                     <span>Use Connection Profile</span>
                 </label>
-                <small class="notes">Use an existing SillyTavern connection profile (recommended)</small>
+                <small class="notes">⚠️ Profile switching during generation causes issues. Use Direct API instead.</small>
             </div>
             
-            <div id="gatekeeper-profile-section">
+            <div id="gatekeeper-profile-section" style="display: none;">
                 <div class="gatekeeper-setting-row">
                     <label>Connection Profile *</label>
                     <div style="display: flex; gap: 5px;">
@@ -47,8 +47,11 @@
                 </div>
             </div>
             
-            <!-- Direct API Mode (hidden by default) -->
-            <div id="gatekeeper-direct-api-section" style="display: none;">
+            <!-- Direct API Mode (always shown) -->
+            <div id="gatekeeper-direct-api-section">
+                <small class="notes" style="display: block; margin-bottom: 10px; color: var(--SmartThemeQuoteColor);">
+                    ℹ️ Configure a separate API for the Gatekeeper. This runs independently of your main chat API.
+                </small>
                 <div class="gatekeeper-setting-row">
                     <label>AI Provider *</label>
                     <select id="gatekeeper-provider" class="text_pole">
