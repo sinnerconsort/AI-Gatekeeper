@@ -1,0 +1,12 @@
+{
+    "display_name": "AI Gatekeeper",
+    "loading_order": 15,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Judas",
+    "version": "0.1.0",
+    "homePage": "",
+    "auto_update": false
+}

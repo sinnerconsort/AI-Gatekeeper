@@ -1,0 +1,199 @@
+/* AI Gatekeeper Extension Styles */
+
+.gatekeeper-settings {
+    padding: 10px;
+}
+
+.gatekeeper-settings h4 {
+    margin: 10px 0 5px 0;
+    color: var(--SmartThemeBodyColor);
+    font-weight: 600;
+}
+
+.gatekeeper-setting-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.gatekeeper-setting-row label {
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+}
+
+.gatekeeper-setting-row select,
+.gatekeeper-setting-row input[type="range"] {
+    width: 100%;
+}
+
+.gatekeeper-setting-row .checkbox_label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+/* Seed Input */
+.gatekeeper-seed-input {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.gatekeeper-seed-input textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 50px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 5px;
+    padding: 8px;
+    color: var(--SmartThemeBodyColor);
+    font-family: inherit;
+}
+
+.gatekeeper-seed-input textarea::placeholder {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.5;
+}
+
+.gatekeeper-seed-input button {
+    align-self: flex-end;
+}
+
+/* Seeds List */
+.gatekeeper-seeds-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.gatekeeper-seed-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 5px;
+}
+
+.gatekeeper-seed-item .seed-status {
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+}
+
+.gatekeeper-seed-item .seed-text {
+    flex-grow: 1;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gatekeeper-seed-item .seed-remove {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    font-size: 0.8em;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.gatekeeper-seed-item .seed-remove:hover {
+    opacity: 1;
+}
+
+/* Status Display */
+.gatekeeper-status {
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 5px;
+    padding: 10px;
+    font-size: 0.85em;
+    color: var(--SmartThemeBodyColor);
+}
+
+.gatekeeper-status div {
+    margin-bottom: 5px;
+}
+
+.gatekeeper-status div:last-child {
+    margin-bottom: 0;
+}
+
+.gatekeeper-status span {
+    font-weight: 600;
+    color: var(--SmartThemeQuoteColor);
+}
+
+/* Quick Menu Seed Input */
+.gatekeeper-quick-seed-container {
+    padding: 10px;
+}
+
+.gatekeeper-quick-seed-container input {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 5px;
+    color: var(--SmartThemeBodyColor);
+}
+
+/* Toast customization */
+.gatekeeper-toast {
+    background: var(--SmartThemeBlurTintColor) !important;
+    border-left: 4px solid #4CAF50 !important;
+}
+
+/* Chaos slider styling */
+#gatekeeper-chaos {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--SmartThemeBorderColor);
+}
+
+#gatekeeper-chaos::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--SmartThemeQuoteColor);
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+#gatekeeper-chaos::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+#gatekeeper-chaos::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--SmartThemeQuoteColor);
+    cursor: pointer;
+    border: none;
+}
+
+/* Horizontal rule styling */
+.gatekeeper-settings hr {
+    border: none;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    margin: 15px 0;
+}
+
+/* Drawer styling */
+.gatekeeper-settings .inline-drawer-content {
+    padding: 10px 0;
+}

@@ -1,0 +1,106 @@
+<div id="gatekeeper_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b><i class="fa-solid fa-masks-theater"></i> AI Gatekeeper</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <!-- Enable Toggle -->
+            <div class="gatekeeper-setting-row">
+                <label class="checkbox_label">
+                    <input type="checkbox" id="gatekeeper-enabled" />
+                    <span>Enable Gatekeeper</span>
+                </label>
+            </div>
+            
+            <!-- Profile Selection -->
+            <div class="gatekeeper-setting-row">
+                <label>Gatekeeper Profile</label>
+                <select id="gatekeeper-profile" class="text_pole">
+                    <option value="">-- Select Profile --</option>
+                </select>
+                <small class="notes">Select which AI profile the Gatekeeper uses for decisions</small>
+            </div>
+            
+            <hr />
+            
+            <!-- World Settings -->
+            <h4><i class="fa-solid fa-globe"></i> World Settings</h4>
+            
+            <div class="gatekeeper-setting-row">
+                <label>Setting</label>
+                <select id="gatekeeper-setting" class="text_pole">
+                    <option value="realistic">Realistic</option>
+                    <option value="low_fantasy">Low Fantasy</option>
+                    <option value="high_fantasy">High Fantasy</option>
+                    <option value="sci_fi">Sci-Fi</option>
+                    <option value="blended">Blended</option>
+                </select>
+            </div>
+            
+            <div class="gatekeeper-setting-row">
+                <label>Tone</label>
+                <select id="gatekeeper-tone" class="text_pole">
+                    <option value="cozy">Cozy</option>
+                    <option value="drama">Drama</option>
+                    <option value="thriller">Thriller</option>
+                    <option value="horror">Horror</option>
+                    <option value="dark">Dark</option>
+                    <option value="chaotic">Chaotic</option>
+                </select>
+            </div>
+            
+            <div class="gatekeeper-setting-row">
+                <label>Pacing</label>
+                <select id="gatekeeper-pacing" class="text_pole">
+                    <option value="slow_burn">Slow Burn</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="escalating">Escalating</option>
+                    <option value="volatile">Volatile</option>
+                </select>
+            </div>
+            
+            <div class="gatekeeper-setting-row">
+                <label>Chaos Factor: <span id="gatekeeper-chaos-value">2</span></label>
+                <input type="range" id="gatekeeper-chaos" min="1" max="5" value="2" />
+                <small class="notes">Higher = more unpredictable interventions</small>
+            </div>
+            
+            <hr />
+            
+            <!-- User Seeds -->
+            <h4><i class="fa-solid fa-seedling"></i> Story Seeds</h4>
+            <small class="notes" style="display: block; margin-bottom: 10px;">
+                Plant seeds for the Gatekeeper to weave into the story naturally.
+            </small>
+            
+            <div class="gatekeeper-seed-input">
+                <textarea id="gatekeeper-new-seed" class="text_pole" placeholder="Plant a seed... (e.g., 'His past catches up with him')" rows="2"></textarea>
+                <button id="gatekeeper-add-seed" class="menu_button">
+                    <i class="fa-solid fa-seedling"></i> Plant Seed
+                </button>
+            </div>
+            
+            <div id="gatekeeper-seeds-list" class="gatekeeper-seeds-list">
+                <!-- Seeds will be populated here -->
+            </div>
+            
+            <hr />
+            
+            <!-- Status -->
+            <h4><i class="fa-solid fa-chart-line"></i> Gatekeeper Status</h4>
+            <div id="gatekeeper-status" class="gatekeeper-status">
+                <div>Threads active: <span id="gatekeeper-threads-count">0</span></div>
+                <div>Seeds planted: <span id="gatekeeper-planted-count">0</span></div>
+                <div>Last action: <span id="gatekeeper-last-action">None</span></div>
+            </div>
+            
+            <!-- Links -->
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <a href="https://github.com/your-repo/ai-gatekeeper" target="_blank" class="menu_button" style="flex: 1; text-align: center; text-decoration: none;">
+                    <i class="fa-brands fa-github"></i> GitHub
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
