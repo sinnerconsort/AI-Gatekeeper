@@ -1074,7 +1074,6 @@ async function onBeforeGeneration() {
         logActivity('Error', 'Failed to get response from Gatekeeper', true);
     }
 }
-}
 
 /**
  * Load settings HTML from external file
