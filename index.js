@@ -58,6 +58,10 @@ const defaultSettings = {
     
     // GM Document fallback
     gmDocument: null,
+    
+    // Debug options
+    debugMode: false,
+    showInjections: false,
 };
 
 // Provider configurations (for direct API mode)
@@ -816,6 +820,133 @@ function showToast(message, type = 'info') {
     }
 }
 
+// Activity log storage (in-memory, resets on page refresh)
+let activityLog = [];
+const MAX_LOG_ENTRIES = 50;
+
+/**
+ * Add entry to activity log
+ */
+function logActivity(action, details, isError = false) {
+    const timestamp = new Date().toLocaleTimeString();
+    const entry = { timestamp, action, details, isError };
+    
+    activityLog.unshift(entry); // Add to beginning
+    if (activityLog.length > MAX_LOG_ENTRIES) {
+        activityLog.pop(); // Remove oldest
+    }
+    
+    // Update UI
+    updateActivityLogUI();
+    
+    // Show toast if debug mode is on
+    const settings = getSettings();
+    if (settings.debugMode) {
+        const icon = isError ? '❌' : getActionIcon(action);
+        showToast(`${icon} ${action}: ${details}`, isError ? 'error' : 'info');
+    }
+    
+    // Always log to console
+    const logFn = isError ? console.error : console.log;
+    logFn(`[Gatekeeper] ${action}:`, details);
+}
+
+/**
+ * Get icon for action type
+ */
+function getActionIcon(action) {
+    const icons = {
+        'whisper': '🤫',
+        'plant': '🌱',
+        'nudge': '💭',
+        'spawn': '✨',
+        'hold': '⏸️',
+        'analyzing': '🔍',
+        'calling': '📡',
+        'complete': '✅',
+        'error': '❌',
+        'enabled': '🎭',
+        'disabled': '💤'
+    };
+    return icons[action.toLowerCase()] || '📋';
+}
+
+/**
+ * Update activity log UI
+ */
+function updateActivityLogUI() {
+    const logContainer = document.getElementById('gatekeeper-activity-log');
+    if (!logContainer) return;
+    
+    if (activityLog.length === 0) {
+        logContainer.innerHTML = '<div style="color: var(--SmartThemeQuoteColor);">Waiting for activity...</div>';
+        return;
+    }
+    
+    logContainer.innerHTML = activityLog.map(entry => {
+        const color = entry.isError ? 'var(--SmartThemeWarningColor)' : 'var(--SmartThemeBodyColor)';
+        const icon = getActionIcon(entry.action);
+        return `<div style="color: ${color}; margin-bottom: 4px; border-bottom: 1px solid var(--SmartThemeBorderColor); padding-bottom: 4px;">
+            <span style="opacity: 0.6;">[${entry.timestamp}]</span> ${icon} <b>${entry.action}</b>: ${entry.details}
+        </div>`;
+    }).join('');
+}
+
+/**
+ * Clear activity log
+ */
+function clearActivityLog() {
+    activityLog = [];
+    updateActivityLogUI();
+}
+
+/**
+ * Display injection in chat (for debug purposes)
+ */
+function displayInjectionInChat(injection) {
+    const settings = getSettings();
+    if (!settings.showInjections || !injection) return;
+    
+    // Find the chat container
+    const chatContainer = document.querySelector('#chat');
+    if (!chatContainer) return;
+    
+    // Create a visual indicator div
+    const indicator = document.createElement('div');
+    indicator.className = 'gatekeeper-injection-display';
+    indicator.style.cssText = `
+        background: linear-gradient(135deg, rgba(138, 43, 226, 0.1), rgba(75, 0, 130, 0.1));
+        border-left: 3px solid #8a2be2;
+        padding: 8px 12px;
+        margin: 5px 0;
+        border-radius: 5px;
+        font-size: 0.85em;
+    `;
+    
+    const actionIcons = {
+        'whisper': '🤫 Whispered',
+        'plant': '🌱 Planted',
+        'nudge': '💭 Nudged',
+        'spawn': '✨ Spawned'
+    };
+    
+    indicator.innerHTML = `
+        <div style="opacity: 0.7; font-size: 0.8em; margin-bottom: 4px;">
+            <i class="fa-solid fa-masks-theater"></i> Gatekeeper ${actionIcons[injection.action] || injection.action}
+            ${injection.target ? `→ ${injection.target}` : ''}
+        </div>
+        <div style="font-style: italic;">"${injection.content}"</div>
+    `;
+    
+    // Insert at the end of the chat
+    chatContainer.appendChild(indicator);
+    
+    // Auto-remove after 30 seconds
+    setTimeout(() => {
+        indicator.remove();
+    }, 30000);
+}
+
 /**
  * Debug function to find where connection profiles are stored
  * Call this from browser console: window.AIGatekeeper.debugProfiles()
@@ -917,16 +1048,32 @@ async function onBeforeGeneration() {
         return;
     }
     
-    console.log('[Gatekeeper] Analyzing scene...');
+    logActivity('Analyzing', 'Scene analysis started...');
     
     const response = await callGatekeeper();
     processGatekeeperResponse(response);
     
-    if (response && response.action !== 'hold') {
-        console.log(`[Gatekeeper] Prepared ${response.action} for ${response.target || 'scene'}`);
+    if (response) {
+        if (response.action === 'hold') {
+            logActivity('Hold', 'Decided not to intervene this turn');
+        } else {
+            const target = response.target || 'scene';
+            logActivity(response.action, `${target}: "${response.content?.substring(0, 50)}${response.content?.length > 50 ? '...' : ''}"`);
+            
+            // Display injection if setting is on
+            displayInjectionInChat({
+                action: response.action,
+                target: response.target,
+                content: response.content
+            });
+        }
+        
         updateStatusDisplay();
         $('#gatekeeper-last-action').text(`${response.action} → ${response.target || 'scene'}`);
+    } else {
+        logActivity('Error', 'Failed to get response from Gatekeeper', true);
     }
+}
 }
 
 /**
@@ -1332,6 +1479,72 @@ function bindSettingsEvents() {
             updateSeedsList();
         }
     });
+    
+    // Debug Mode
+    $('#gatekeeper-debug-mode').on('change', function() {
+        settings.debugMode = $(this).is(':checked');
+        if (settings.debugMode) {
+            logActivity('Enabled', 'Debug mode activated');
+        }
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    // Show Injections
+    $('#gatekeeper-show-injections').on('change', function() {
+        settings.showInjections = $(this).is(':checked');
+        if (saveSettingsDebounced) saveSettingsDebounced();
+    });
+    
+    // Clear Activity Log
+    $('#gatekeeper-clear-log').on('click', function() {
+        clearActivityLog();
+        showToast('Activity log cleared', 'info');
+    });
+    
+    // Test Run Button
+    $('#gatekeeper-test-run').on('click', async function() {
+        const btn = $(this);
+        const originalHTML = btn.html();
+        
+        btn.prop('disabled', true);
+        btn.html('<i class="fa-solid fa-spinner fa-spin"></i> Running...');
+        
+        logActivity('Test Run', 'Manual test initiated');
+        
+        try {
+            // Temporarily enable for the test if not enabled
+            const wasEnabled = settings.enabled;
+            
+            const response = await callGatekeeper();
+            
+            if (response) {
+                if (response.action === 'hold') {
+                    logActivity('Test Result', 'Gatekeeper decided to HOLD (no intervention needed)');
+                    showToast('Test complete: Gatekeeper chose to hold', 'success');
+                } else {
+                    logActivity('Test Result', `Would ${response.action} → ${response.target || 'scene'}: "${response.content?.substring(0, 80)}..."`);
+                    showToast(`Test complete: Would ${response.action} on ${response.target || 'scene'}`, 'success');
+                    
+                    // Show reasoning if available
+                    if (response.reasoning) {
+                        logActivity('Reasoning', response.reasoning);
+                    }
+                }
+                
+                updateStatusDisplay();
+                $('#gatekeeper-last-action').text(`[TEST] ${response.action} → ${response.target || 'scene'}`);
+            } else {
+                logActivity('Test Failed', 'No response from Gatekeeper - check API configuration', true);
+                showToast('Test failed - check API configuration', 'error');
+            }
+        } catch (error) {
+            logActivity('Test Error', error.message, true);
+            showToast(`Test error: ${error.message}`, 'error');
+        } finally {
+            btn.prop('disabled', false);
+            btn.html(originalHTML);
+        }
+    });
 }
 
 /**
@@ -1362,8 +1575,13 @@ async function updateSettingsUI() {
     $('#gatekeeper-chaos').val(settings.chaosFactor);
     $('#gatekeeper-chaos-value').text(settings.chaosFactor);
     
+    // Debug settings
+    $('#gatekeeper-debug-mode').prop('checked', settings.debugMode || false);
+    $('#gatekeeper-show-injections').prop('checked', settings.showInjections || false);
+    
     updateSeedsList();
     updateStatusDisplay();
+    updateActivityLogUI();
 }
 
 /**
@@ -1488,5 +1706,8 @@ window.AIGatekeeper = {
     getSettings,
     loadGMDocument,
     getPendingInjection: () => pendingInjection,
-    debugProfiles  // Debug function to help identify profile storage
+    debugProfiles,  // Debug function to help identify profile storage
+    logActivity,    // Manual activity logging
+    clearActivityLog,
+    getActivityLog: () => activityLog
 };

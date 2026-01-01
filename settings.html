@@ -159,6 +159,41 @@
                 <div>Seeds planted: <span id="gatekeeper-planted-count">0</span></div>
                 <div>Last action: <span id="gatekeeper-last-action">None</span></div>
             </div>
+            
+            <hr />
+            
+            <!-- Debug & Activity -->
+            <h4><i class="fa-solid fa-bug"></i> Debug & Activity</h4>
+            
+            <div class="gatekeeper-setting-row">
+                <label class="checkbox_label">
+                    <input type="checkbox" id="gatekeeper-debug-mode" />
+                    <span>Debug Mode</span>
+                </label>
+                <small class="notes">Show toast notifications for all Gatekeeper activity</small>
+            </div>
+            
+            <div class="gatekeeper-setting-row">
+                <label class="checkbox_label">
+                    <input type="checkbox" id="gatekeeper-show-injections" />
+                    <span>Show Injections in Chat</span>
+                </label>
+                <small class="notes">Display what the Gatekeeper whispered to characters (visible only to you)</small>
+            </div>
+            
+            <div class="gatekeeper-setting-row">
+                <label>Activity Log <button id="gatekeeper-clear-log" class="menu_button" style="padding: 2px 8px; font-size: 0.8em; margin-left: 10px;">Clear</button></label>
+                <div id="gatekeeper-activity-log" style="max-height: 150px; overflow-y: auto; background: var(--SmartThemeBlurTintColor); border-radius: 5px; padding: 8px; font-size: 0.85em; font-family: monospace; margin-top: 5px;">
+                    <div style="color: var(--SmartThemeQuoteColor);">Waiting for activity...</div>
+                </div>
+            </div>
+            
+            <div class="gatekeeper-setting-row" style="margin-top: 10px;">
+                <button id="gatekeeper-test-run" class="menu_button" style="width: 100%;">
+                    <i class="fa-solid fa-play"></i> Test Run Gatekeeper Now
+                </button>
+                <small class="notes">Manually trigger Gatekeeper to see what it would do</small>
+            </div>
         </div>
     </div>
 </div>
